@@ -8,7 +8,7 @@
 
 set -e
 
-# 1️⃣ Konfigurasi konektivitas dasar
+#  Konfigurasi konektivitas dasar
 echo "[INFO] Menyiapkan koneksi DNS & proxy..."
 cat > /etc/resolv.conf <<EOF
 nameserver 10.68.5.2
@@ -20,7 +20,7 @@ export http_proxy="http://10.68.5.2:3128"
 export https_proxy="http://10.68.5.2:3128"
 export COMPOSER_ALLOW_SUPERUSER=1
 
-# 2️⃣ Instal dependensi sistem & PHP
+#  Instal dependensi sistem & PHP
 echo "[INFO] Menginstal dependensi dasar..."
 apt update -o Acquire::ForceIPv4=true -y
 apt install -y curl git unzip ca-certificates lsb-release gnupg apt-transport-https
@@ -36,14 +36,14 @@ apt install -y nginx php8.4-fpm php8.4-cli php8.4-common \
     php8.4-curl php8.4-mbstring php8.4-xml php8.4-zip php8.4-gd \
     php8.4-intl php8.4-bcmath php8.4-mysql php8.4-sqlite3
 
-# 3️⃣ Instal Composer
+#  Instal Composer
 echo "[INFO] Menginstal Composer..."
 curl -sS https://getcomposer.org/installer -o composer-setup.php
 php composer-setup.php --install-dir=/usr/local/bin --filename=composer
 rm -f composer-setup.php
 composer --version
 
-# 4️⃣ Deploy project Laravel
+#  Deploy project Laravel
 echo "[INFO] Mengunduh proyek Laravel dari GitHub..."
 mkdir -p /var/www
 cd /var/www
@@ -61,7 +61,7 @@ php artisan key:generate
 chown -R www-data:www-data /var/www/laravel-app
 chmod -R 775 storage bootstrap/cache
 
-# 5️⃣ Konfigurasi Nginx per node
+#  Konfigurasi Nginx per node
 echo "[INFO] Mengonfigurasi Nginx untuk node ini..."
 
 # Tentukan domain berdasarkan hostname
@@ -103,7 +103,3 @@ ln -sf /etc/nginx/sites-available/laravel.conf /etc/nginx/sites-enabled/laravel.
 nginx -t && systemctl restart nginx && systemctl restart php8.4-fpm
 
 echo "[SUCCESS] Worker Laravel siap diakses pada http://${DOMAIN}"
-
-# 6️⃣ Tes ringan (opsional)
-echo "[INFO] Menjalankan tes sederhana..."
-curl -I "http://${DOMAIN}" || echo "[WARN] Tes gagal — pastikan DNS sudah mengarah dengan benar."
