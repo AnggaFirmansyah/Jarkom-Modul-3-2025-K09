@@ -11,11 +11,8 @@
 
 ## Nomor 1: Persiapan Node & Topologi
 
-```bash
-# Pastikan semua node sudah hidup di GNS3
-# Cek konektivitas antar node dengan ping dasar
-ping -c 3 <IP_NODE>
-```
+<img width="910" height="652" alt="image" src="https://github.com/user-attachments/assets/5752b675-887a-485b-a768-1bfd05b4abab" />
+
 
 ## Nomor 2: DHCP Server (Aldarion) & DHCP Relay (Durin)
 
