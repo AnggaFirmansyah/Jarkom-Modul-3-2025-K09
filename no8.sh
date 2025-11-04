@@ -16,8 +16,8 @@ service mariadb restart
 mariadb -u root <<'EOF'
 CREATE DATABASE IF NOT EXISTS laravel_db;
 DROP USER IF EXISTS 'laravel_user'@'%';
-CREATE USER 'zeinkeren'@'%' IDENTIFIED BY 'nandakocak';
-GRANT ALL PRIVILEGES ON laravel_db.* TO 'zeinkeren'@'%';
+CREATE USER 'anggakeren'@'%' IDENTIFIED BY 'runabeban';
+GRANT ALL PRIVILEGES ON laravel_db.* TO 'anggakeren'@'%';
 FLUSH PRIVILEGES;
 EOF
 
