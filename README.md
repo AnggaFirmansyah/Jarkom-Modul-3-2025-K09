@@ -460,302 +460,426 @@ service networking restart
 # Cek file lease di client
 grep "lease-time" /var/lib/dhcp/dhclient.leases
 # Hasil yang Diharapkan: default-lease-time 600;
-Nomor 7: Setup Web Worker (Laravel)
-(Setup Proxy di Minastir - Diperlukan untuk Soal 7)
-Node: Minastir
 
-Install Squid
 
-Bash
+# Soal 7 — Instalasi & Konfigurasi Laravel Worker (Elendil, Isildur, Anarion)
 
-apt update -o Acquire::ForceIPv4=true
-apt install -y squid
-Konfigurasi Squid
+Tujuan
+Membangun tiga worker Laravel (Elendil, Isildur, Anarion) yang terhubung dengan DNS Forwarder Minastir (10.68.5.2)
 
-File: /etc/squid/squid.conf
+### Bagian 1 — Persiapan di Elendil, Isildur, dan Anarion
 
-Tambahkan sebelum http_access deny all:
+```bash
+# Set DNS agar bisa resolve lewat Minastir
+echo "nameserver 10.68.5.2" > /etc/resolv.conf
 
-Ini, TOML
-
-acl mynetwork src 10.68.0.0/16
-http_access allow mynetwork
-Restart Squid
-
-Bash
-
-service squid restart
-netstat -tlnp | grep 3128
-Persiapan di Elendil, Isildur, dan Anarion
-Atur DNS & Proxy agar bisa konek internet
-
-Bash
-
-printf "nameserver 10.68.5.2\noptions timeout:2 attempts:2\n" > /etc/resolv.conf
-export http_proxy=[http://10.68.5.2:3128](http://10.68.5.2:3128)
-export https_proxy=[http://10.68.5.2:3128](http://10.68.5.2:3128)
-export COMPOSER_ALLOW_SUPERUSER=1
-Instalasi dependensi dasar (PHP 8.4 & Nginx)
-
-Bash
-
-apt update -o Acquire::ForceIPv4=true -y
+# Update dan install dependensi dasar
+apt update -y
 apt install -y curl git unzip ca-certificates lsb-release gnupg apt-transport-https
 
 # Tambahkan repo PHP 8.4 (sury.org)
-curl -fsSL [https://packages.sury.org/php/apt.gpg](https://packages.sury.org/php/apt.gpg) | tee /etc/apt/trusted.gpg.d/sury.gpg >/dev/null
-echo "deb [https://packages.sury.org/php](https://packages.sury.org/php) $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/sury.list
-apt update -o Acquire::ForceIPv4=true -y
+curl -fsSL https://packages.sury.org/php/apt.gpg | tee /etc/apt/trusted.gpg.d/sury.gpg >/dev/null
+echo "deb https://packages.sury.org/php $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury.list
+apt update -y
 
-# Instal PHP dan nginx
-apt install -y \
-    php8.4-fpm php8.4-cli php8.4-common php8.4-curl php8.4-mbstring php8.4-xml \
-    php8.4-zip php8.4-gd php8.4-intl php8.4-bcmath php8.4-mysql php8.4-sqlite3 \
-    nginx
-Instal composer
+# Install PHP dan Nginx
+apt install -y php8.4-fpm php8.4-cli php8.4-common php8.4-curl php8.4-mbstring \
+php8.4-xml php8.4-zip php8.4-gd php8.4-intl php8.4-bcmath php8.4-mysql php8.4-sqlite3 nginx
 
-Bash
-
-curl -o composer-setup.php [https://getcomposer.org/installer](https://getcomposer.org/installer)
+# Install composer
+curl -o composer-setup.php https://getcomposer.org/installer
 php composer-setup.php --install-dir=/usr/local/bin --filename=composer
 rm -f composer-setup.php
-Clone proyek Laravel
+composer --version
 
-Bash
-
+# Clone project Laravel
 mkdir -p /var/www
 cd /var/www
 rm -rf resource-laravel
-git clone [https://github.com/elshiraphine/laravel-simple-rest-api](https://github.com/elshiraphine/laravel-simple-rest-api) resource-laravel
+git clone https://github.com/elshiraphine/laravel-simple-rest-api resource-laravel
+
 cd resource-laravel
 composer update --no-dev
+
+# Salin file .env dan generate key
 cp .env.example .env
 php artisan key:generate
-Atur izin folder
 
-Bash
-
+# Atur izin folder
 chown -R www-data:www-data /var/www/resource-laravel
 chmod -R 775 /var/www/resource-laravel/storage
 chmod -R 775 /var/www/resource-laravel/bootstrap/cache
-Konfigurasi Nginx (Dijalankan di setiap worker)
+```
 
-Untuk ELENDIL:
-
-Bash
-
+### Bagian 2 — Konfigurasi Nginx di Elendil
+```bash
 DOMAIN="elendil.k09.com"
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+rm -f /etc/nginx/sites-enabled/default
+
 cat >/etc/nginx/sites-available/laravel.conf <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
     root /var/www/resource-laravel/public;
     index index.php index.html;
-    location / { try_files \$uri \$uri/ /index.php?\$query_string; }
-    location ~ \.php$ {
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.4-fpm.sock;
     }
 }
 EOF
+
 ln -sf /etc/nginx/sites-available/laravel.conf /etc/nginx/sites-enabled/laravel.conf
 nginx -t && service nginx restart && service php8.4-fpm restart
-Untuk ISILDUR:
+```
 
-Bash
-
+### Bagian 3 — Konfigurasi Nginx di Isildur
+```bash
 DOMAIN="isildur.k09.com"
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+rm -f /etc/nginx/sites-enabled/default
+
 cat >/etc/nginx/sites-available/laravel.conf <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
     root /var/www/resource-laravel/public;
     index index.php index.html;
-    location / { try_files \$uri \$uri/ /index.php?\$query_string; }
-    location ~ \.php$ {
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.4-fpm.sock;
     }
 }
 EOF
+
 ln -sf /etc/nginx/sites-available/laravel.conf /etc/nginx/sites-enabled/laravel.conf
 nginx -t && service nginx restart && service php8.4-fpm restart
-Untuk ANARION:
+```
 
-Bash
-
+### Bagian 4 — Konfigurasi Nginx di Anarion
+```bash
 DOMAIN="anarion.k09.com"
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+rm -f /etc/nginx/sites-enabled/default
+
 cat >/etc/nginx/sites-available/laravel.conf <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
     root /var/www/resource-laravel/public;
     index index.php index.html;
-    location / { try_files \$uri \$uri/ /index.php?\$query_string; }
-    location ~ \.php$ {
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.4-fpm.sock;
     }
 }
 EOF
+
 ln -sf /etc/nginx/sites-available/laravel.conf /etc/nginx/sites-enabled/laravel.conf
 nginx -t && service nginx restart && service php8.4-fpm restart
-Verifikasi di Klien (Pharazon)
+```
 
-Bash
+### Testing (di Pharazon)
+```bash
+# Pastikan DNS ke Minastir
+echo "nameserver 10.68.5.2" > /etc/resolv.conf
 
-printf "nameserver 10.68.5.2\noptions timeout:2 attempts:2\n" >/etc/resolv.conf
-apt update -o Acquire::ForceIPv4=true -y
-apt install -y lynx
+# Install lynx
+apt update -y && apt install -y lynx
 
-lynx -dump [http://elendil.k09.com](http://elendil.k09.com)
-lynx -dump [http://isildur.k09.com](http://isildur.k09.com)
-lynx -dump [http://anarion.k09.com](http://anarion.k09.com)
-Nomor 8: Konfigurasi Database (Palantir)
-Setup di Palantir
+# Cek apakah web Laravel dapat diakses
+lynx -dump http://elendil.k09.com
+lynx -dump http://isildur.k09.com
+lynx -dump http://anarion.k09.com
+```
 
-Bash
+# Soal 8 — Konfigurasi Database Master–Slave MariaDB
+Node yang Dikerjakan
+Palantir → Database Master (10.68.4.3)
 
-# Atur DNS dan Proxy
-printf "nameserver 10.68.5.2\noptions timeout:2 attempts:2\n" > /etc/resolv.conf
-cat > /etc/apt/apt.conf.d/00proxy <<'EOF'
-Acquire::http::Proxy  "[http://10.68.5.2:3128](http://10.68.5.2:3128)";
-Acquire::https::Proxy "[http://10.68.5.2:3128](http://10.68.5.2:3128)";
-EOF
+Narvi → Database Slave (10.68.4.4)
 
-# Install MariaDB
-apt update -o Acquire::ForceIPv4=true -y
+Laravel Worker (Elendil, Isildur, Anarion) → akan mengakses DB dari Palantir.
+
+
+### Bagian 1 — Persiapan Palantir & Narvi
+```bash
+# Pastikan DNS ke Minastir
+echo "nameserver 10.68.5.2" > /etc/resolv.conf
+
+# Update package list
+apt update -y
+
+# Install MariaDB di kedua node
 apt install -y mariadb-server
-Konfigurasi MariaDB agar bisa diakses dari luar
+```
 
-Bash
+### Bagian 2 — Konfigurasi Palantir (Master)
+```bash
+# Edit file konfigurasi MariaDB
+nano /etc/mysql/mariadb.conf.d/50-server.cnf
+```
 
-# Ubah bind address agar listen di IP-nya (10.68.4.3)
-sed -i 's/^\(bind-address\s*=\s*\).*/\10.68.4.3/' /etc/mysql/mariadb.conf.d/50-server.cnf
+Ubah / tambahkan baris berikut:
+bind-address            = 0.0.0.0
+server-id               = 1
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_do_db            = laravel
+
+Kemudian restart:
 service mariadb restart
-Setup database dan user
 
-SQL
+Masuk ke MariaDB shell:
+mysql -u root -p
 
-mariadb -u root <<'EOF'
-CREATE DATABASE IF NOT EXISTS laravel_db;
-DROP USER IF EXISTS 'laravel_user'@'%';
-CREATE USER 'zeinkeren'@'%' IDENTIFIED BY 'nandakocak';
-GRANT ALL PRIVILEGES ON laravel_db.* TO 'zeinkeren'@'%';
+Jalankan perintah berikut:
+CREATE DATABASE laravel;
+CREATE USER 'replica'@'10.68.4.4' IDENTIFIED BY 'replpass';
+GRANT REPLICATION SLAVE ON *.* TO 'replica'@'10.68.4.4';
 FLUSH PRIVILEGES;
-EOF
-Konfigurasi di Elendil, Isildur, dan Anarion
+FLUSH TABLES WITH READ LOCK;
+SHOW MASTER STATUS;
 
-(Catatan: File migrasi dan seeder di-patch sesuai konfigurasi file Anda)
+Catat hasil dari File dan Position — akan digunakan di Narvi.
+Contoh output:
+File: mysql-bin.000001
+Position: 567
 
-Bash
+### Bagian 3 — Konfigurasi Narvi (Slave)
+```bash
+nano /etc/mysql/mariadb.conf.d/50-server.cnf
+```
 
-# Di Elendil, Isildur, Anarion
+Tambahkan/ubah:
+bind-address            = 0.0.0.0
+server-id               = 2
+relay-log               = /var/log/mysql/mysql-relay-bin.log
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_do_db            = laravel
+
+Restart service:
+service mariadb restart
+
+Masuk ke MariaDB shell:
+mysql -u root -p
+
+Jalankan perintah (ganti File dan Position sesuai hasil Palantir):
+CHANGE MASTER TO
+MASTER_HOST='10.68.4.3',
+MASTER_USER='replica',
+MASTER_PASSWORD='replpass',
+MASTER_LOG_FILE='mysql-bin.000001',
+MASTER_LOG_POS=567;
+START SLAVE;
+SHOW SLAVE STATUS\G
+
+Cek status:
+Jika Slave_IO_Running: Yes dan Slave_SQL_Running: Yes  → berarti replikasi berhasil.
+
+### Bagian 4 — Koneksi Laravel ke Database
+Di masing-masing worker (Elendil, Isildur, Anarion):
+Edit file .env di folder Laravel:
+```bash
+nano /var/www/resource-laravel/.env
+```
+
+Ubah bagian database menjadi:
+DB_CONNECTION=mysql
+DB_HOST=10.68.4.3
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=root
+DB_PASSWORD=
+
+Simpan lalu uji koneksi:
 cd /var/www/resource-laravel
+php artisan migrate
 
-# Patch migration
-cat > database/migrations/2023_02_08_103126_create_airings_table.php <<'EOF'
-<?php
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-return new class extends Migration {
-public function up() {
-Schema::create('airings', function (Blueprint $table) {
-$table->id();
-$table->string('title');
-$table->string('status');
-$table->date('start_date');
-$table->timestamps();
-});
-}
-public function down() {
-Schema::dropIfExists('airings');
-}
-};
-EOF
+Jika berhasil tanpa error Laravel sudah terhubung ke DB Master Palantir.
 
-# Seeder dan konfigurasi
-cat > database/seeders/airing.json <<'EOF'
-{
-"data": [
-{"title": "Attack on Titan", "status": "Finished Airing", "start_date": "2013-04-07"},
-{"title": "One Piece", "status": "Currently Airing", "start_date": "1999-10-20"},
-{"title": "Jujutsu Kaisen", "status": "Finished Airing", "start_date": "2020-10-03"}
-]
-}
-EOF
+### Testing Sinkronisasi Replikasi
+Masuk ke Palantir (Master):
 
-cat > database/seeders/AiringSeeder.php <<'EOF'
-<?php
-namespace Database\Seeders;
-use App\Models\Airing;
-use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\File;
-class AiringSeeder extends Seeder {
-public function run() {
-$json = File::get(database_path('seeders/airing.json'));
-$data = json_decode($json, true);
-Airing::truncate();
-if (isset($data['data'])) {
-foreach ($data['data'] as $item) {
-Airing::create([
-'title' => $item['title'],
-'status' => $item['status'],
-'start_date' => $item['start_date'],
-]);
-}
-}
-}
-}
-EOF
+ USE laravel;
+CREATE TABLE test_table (id INT PRIMARY KEY, name VARCHAR(50));
+INSERT INTO test_table VALUES (1, 'Replikasi OK');
 
-# Update DatabaseSeeder.php
-cat > database/seeders/DatabaseSeeder.php <<'EOF'
-<?php
-namespace Database\Seeders;
-use Illuminate\Database\Seeder;
-class DatabaseSeeder extends Seeder {
-public function run() {
-$this->call([AiringSeeder::class]);
-}
-}
-EOF
+Masuk ke Narvi (Slave):
 
-# Konfigurasi .env
-sed -i "s/DB_HOST=127.0.0.1/DB_HOST=10.68.4.3/" .env
-sed -i "s/DB_DATABASE=laravel/DB_DATABASE=laravel_db/" .env
-sed -i "s/^DB_USERNAME=.*/DB_USERNAME=zeinkeren/" .env
-sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=nandakocak/" .env
-Migrasi dan Seeding (Hanya di Elendil)
+ USE laravel;
+SELECT * FROM test_table;
+  Jika muncul Replikasi OK berarti replikasi berjalan sempurna.
 
-Bash
+# Soal 9 — Pengujian API Laravel dari Pharazon
+Node yang dikerjakan:
 
-php artisan migrate:fresh --seed
-Nomor 9: Pengujian API Laravel
-Node yang Dikerjakan: Pharazon
+Pharazon (10.68.2.4)
 
-Bash
+Sebagai client penguji (dan nantinya juga Load Balancer untuk PHP/Laravel).
 
-# Setup DNS dan Proxy
+Tujuan:
+
+Pastikan Pharazon bisa mengakses API Laravel dari ketiga Laravel Worker:
+
+Elendil → http://elendil.K09.com:8001/api/airing
+
+Isildur → http://isildur.K09.com:8002/api/airing
+
+Anarion → http://anarion.K09.com:8003/api/airing
+
+Tes akses via domain (DNS), bukan IP — karena sudah dikonfigurasi di soal 3 (DNS Forwarder Minastir) dan soal 4–6 (DNS Master/Slave).
+
+Pastikan respon API Laravel (data airing dari database Palantir) tampil benar.
+
+### Langkah Konfigurasi dan Uji
+ ```bash
+#  Di node Pharazon
+
+# Pastikan DNS diarahkan ke Minastir (agar bisa resolve domain *.K09.com)
 printf "nameserver 10.68.5.2\n" > /etc/resolv.conf
-cat >/etc/apt/apt.conf.d/00proxy <<'EOF'
-Acquire::http::Proxy  "[http://10.68.5.2:3128](http://10.68.5.2:3128)";
-Acquire::https::Proxy "[http://10.68.5.2:3128](http://10.68.5.2:3128)";
+
+# Tambahkan proxy agar bisa apt-get lewat Minastir (sebagai internet gateway)
+cat > /etc/apt/apt.conf.d/00proxy <<'EOF'
+Acquire::http::Proxy  "http://10.68.5.2:3128";
+Acquire::https::Proxy "http://10.68.5.2:3128";
 EOF
 
+# Update dan install tools untuk testing
 apt update -o Acquire::ForceIPv4=true -y
 apt install -y lynx curl
 
-# Uji koneksi Laravel API
-lynx -dump [http://elendil.k09.com/api/airing](http://elendil.k09.com/api/airing)
-curl [http://elendil.k09.com/api/airing](http://elendil.k09.com/api/airing)
+# Uji koneksi API Laravel dari setiap worker
 
-lynx -dump [http://isildur.k09.com/api/airing](http://isildur.k09.com/api/airing)
-curl [http://isildur.k09.com/api/airing](http://isildur.k09.com/api/airing)
+# Elendil
+echo "=== Testing Elendil ==="
+lynx -dump http://elendil.K09.com:8001/api/airing
+curl http://elendil.K09.com:8001/api/airing
+echo
 
-lynx -dump [http://anarion.k09.com/api/airing](http://anarion.k09.com/api/airing)
-curl [http://anarion.k09.com/api/airing](http://anarion.k09.com/api/airing)
+# Isildur
+echo "=== Testing Isildur ==="
+lynx -dump http://isildur.K09.com:8002/api/airing
+curl http://isildur.K09.com:8002/api/airing
+echo
+
+# Anarion
+echo "=== Testing Anarion ==="
+lynx -dump http://anarion.K09.com:8003/api/airing
+curl http://anarion.K09.com:8003/api/airing
+echo
+```
+
+### Kriteria Keberhasilan
+Semua domain (elendil.K09.com, isildur.K09.com, anarion.K09.com) berhasil di-resolve.
+
+Perintah curl dan lynx menampilkan data JSON airing seperti:
+
+ [{"title":"Attack on Titan","status":"Finished Airing","start_date":"2013-04-07"}, ...]
+
+Tidak muncul error seperti Could not resolve host, 403 Forbidden, atau Connection refused.
+
+
+# Soal 10 — Konfigurasi Load Balancer Laravel
+Node yang Dikerjakan:
+
+Elros (10.68.1.7) → Load Balancer untuk Laravel (pakai NGINX)
+
+Pharazon (10.68.2.4) → Client penguji (dan akan digunakan untuk uji hasil load balancing)
+
+Tujuan
+
+Elros menampung semua permintaan ke domain laravel.K09.com.
+
+Lalu membagi (load balance) ke tiga Laravel worker:
+
+10.68.1.2 → Elendil
+
+10.68.1.3 → Isildur
+
+10.68.1.4 → Anarion
+
+Akses via Pharazon → http://laravel.K09.com menampilkan hasil API gabungan dari ketiga backend.
+
+### Langkah Konfigurasi
+
+### 1. Di node Elros
+```bash
+# Pastikan DNS diarahkan ke Minastir
+printf "nameserver 10.68.5.2\n" > /etc/resolv.conf
+
+# Tambahkan proxy jika perlu akses apt
+cat > /etc/apt/apt.conf.d/00proxy <<'EOF'
+Acquire::http::Proxy  "http://10.68.5.2:3128";
+Acquire::https::Proxy "http://10.68.5.2:3128";
+EOF
+
+# Update dan install nginx
+apt update -o Acquire::ForceIPv4=true -y
+apt install -y nginx
+
+# Backup default config
+mv /etc/nginx/sites-enabled/default /root/default.bak
+
+# Konfigurasi load balancer Laravel
+cat > /etc/nginx/sites-available/laravel-lb.conf <<'EOF'
+upstream laravel_backend {
+    server 10.68.1.2:8001;
+    server 10.68.1.3:8002;
+    server 10.68.1.4:8003;
+}
+
+server {
+    listen 80;
+    server_name laravel.K09.com;
+
+    location / {
+        proxy_pass http://laravel_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+EOF
+
+ln -s /etc/nginx/sites-available/laravel-lb.conf /etc/nginx/sites-enabled/
+nginx -t && service nginx restart
+```
+
+### 2. Tambahkan Domain di DNS Master (Erendis)
+Tambahkan satu domain baru untuk load balancer:
+```bash
+# Di node Erendis (DNS Master)
+nano /etc/bind/zone/numenor.K09.com
+
+# Tambahkan:
+laravel  IN  A  10.68.1.7
+
+Lalu reload:
+service bind9 restart
+```
+
+### 3. Uji dari Pharazon
+```bash
+# Pastikan DNS ke Minastir
+printf "nameserver 10.68.5.2\n" > /etc/resolv.conf
+
+# Uji resolusi DNS
+host laravel.K09.com
+
+# Uji akses API melalui Load Balancer
+curl http://laravel.K09.com/api/airing
+lynx -dump http://laravel.K09.com/api/airing
+```
+
+### Kriteria Keberhasilan
+host laravel.K09.com mengarah ke 10.68.1.7
+
+curl http://laravel.K09.com/api/airing menampilkan data JSON airing
+
+Jika diulang beberapa kali (curl berulang), hasilnya akan bergantian (menandakan load balancing aktif)
