@@ -1,106 +1,90 @@
-# Di Palantir
-printf "nameserver 10.68.5.2\noptions timeout:2 attempts:2\n" > /etc/resolv.conf
-cat > /etc/apt/apt.conf.d/00proxy <<'EOF'
-Acquire::http::Proxy  "http://10.68.5.2:3128";
-Acquire::https::Proxy "http://10.68.5.2:3128";
-EOF
+# Persiapan Palantir & Narvi
+# Pastikan DNS ke Minastir
+echo "nameserver 10.68.5.2" > /etc/resolv.conf
 
-apt update -o Acquire::ForceIPv4=true -y
+# Update package list
+apt update -y
+
+# Install MariaDB di kedua node
 apt install -y mariadb-server
 
-# Ubah bind address agar bisa diakses dari luar
-sed -i 's/^\(bind-address\s*=\s*\).*/\10.68.4.3/' /etc/mysql/mariadb.conf.d/50-server.cnf
+
+# Konfigurasi Palantir (Master)
+# Edit file konfigurasi MariaDB
+nano /etc/mysql/mariadb.conf.d/50-server.cnf
+
+# Ubah / tambahkan baris berikut:
+bind-address            = 0.0.0.0
+server-id               = 1
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_do_db            = laravel
+
+# Kemudian restart:
 service mariadb restart
 
-# Setup database dan user
-mariadb -u root <<'EOF'
-CREATE DATABASE IF NOT EXISTS laravel_db;
-DROP USER IF EXISTS 'laravel_user'@'%';
-CREATE USER 'anggakeren'@'%' IDENTIFIED BY 'runabeban';
-GRANT ALL PRIVILEGES ON laravel_db.* TO 'anggakeren'@'%';
+# Masuk ke MariaDB shell:
+mysql -u root -p
+
+# Jalankan perintah berikut:
+CREATE DATABASE laravel;
+CREATE USER 'replica'@'10.68.4.4' IDENTIFIED BY 'replpass';
+GRANT REPLICATION SLAVE ON *.* TO 'replica'@'10.68.4.4';
 FLUSH PRIVILEGES;
-EOF
+FLUSH TABLES WITH READ LOCK;
+SHOW MASTER STATUS;
 
-# Di Elendil, Isildur, Anarion
+# Catat hasil dari File dan Position — akan digunakan di Narvi.
+Contoh output:
+File: mysql-bin.000001
+Position: 567
+
+
+# Konfigurasi Narvi (Slave)
+nano /etc/mysql/mariadb.conf.d/50-server.cnf
+
+# Tambahkan/ubah:
+bind-address            = 0.0.0.0
+server-id               = 2
+relay-log               = /var/log/mysql/mysql-relay-bin.log
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_do_db            = laravel
+
+# Restart service:
+service mariadb restart
+
+# Masuk ke MariaDB shell:
+mysql -u root -p
+
+# Jalankan perintah (ganti File dan Position sesuai hasil Palantir):
+CHANGE MASTER TO
+MASTER_HOST='10.68.4.3',
+MASTER_USER='replica',
+MASTER_PASSWORD='replpass',
+MASTER_LOG_FILE='mysql-bin.000001',
+MASTER_LOG_POS=567;
+START SLAVE;
+SHOW SLAVE STATUS\G
+
+# Cek status:
+# Jika Slave_IO_Running: Yes dan Slave_SQL_Running: Yes berarti replikasi berhasil.
+
+
+
+# Koneksi Laravel ke Database
+Di masing-masing worker (Elendil, Isildur, Anarion):
+Edit file .env di folder Laravel:
+nano /var/www/resource-laravel/.env
+
+# Ubah bagian database menjadi:
+DB_CONNECTION=mysql
+DB_HOST=10.68.4.3
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=root
+DB_PASSWORD=
+
+# Simpan lalu uji koneksi:
 cd /var/www/resource-laravel
-
-# Patch migration
-cat > database/migrations/2023_02_08_103126_create_airings_table.php <<'EOF'
-<?php
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-return new class extends Migration {
-    public function up() {
-        Schema::create('airings', function (Blueprint $table) {
-            $table->id();
-            $table->string('title');
-            $table->string('status');
-            $table->date('start_date');
-            $table->timestamps();
-        });
-    }
-    public function down() {
-        Schema::dropIfExists('airings');
-    }
-};
-EOF
-
-# Seeder dan konfigurasi
-cat > database/seeders/airing.json <<'EOF'
-{
-  "data": [
-    {"title": "Attack on Titan", "status": "Finished Airing", "start_date": "2013-04-07"},
-    {"title": "One Piece", "status": "Currently Airing", "start_date": "1999-10-20"},
-    {"title": "Jujutsu Kaisen", "status": "Finished Airing", "start_date": "2020-10-03"}
-  ]
-}
-EOF
-
-cat > database/seeders/AiringSeeder.php <<'EOF'
-<?php
-namespace Database\Seeders;
-use App\Models\Airing;
-use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\File;
-class AiringSeeder extends Seeder {
-    public function run() {
-        $json = File::get(database_path('seeders/airing.json'));
-        $data = json_decode($json, true);
-        Airing::truncate();
-        if (isset($data['data'])) {
-            foreach ($data['data'] as $item) {
-                Airing::create([
-                    'title' => $item['title'],
-                    'status' => $item['status'],
-                    'start_date' => $item['start_date'],
-                ]);
-            }
-        }
-    }
-}
-EOF
-
-# Update DatabaseSeeder.php
-cat > database/seeders/DatabaseSeeder.php <<'EOF'
-<?php
-namespace Database\Seeders;
-use Illuminate\Database\Seeder;
-class DatabaseSeeder extends Seeder {
-    public function run() {
-        $this->call([AiringSeeder::class]);
-    }
-}
-EOF
-
-# Konfigurasi .env
-sed -i "s/DB_HOST=127.0.0.1/DB_HOST=10.68.4.3/" .env
-sed -i "s/DB_DATABASE=laravel/DB_DATABASE=laravel_db/" .env
-sed -i "s/^DB_USERNAME=.*/DB_USERNAME=zeinkeren/" .env
-sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=nandakocak/" .env
-
-# Migrasi dan seeding di Elendil
-php artisan migrate:fresh --seed
-
+php artisan migrate
 
 
